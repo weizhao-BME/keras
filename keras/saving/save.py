@@ -18,7 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import tensorflow as tf
+import tensorflow.compat.v2 as tf
 
 import six
 from keras.saving import hdf5_format
@@ -131,6 +131,11 @@ def save_model(model,
   save_format = save_format or default_format
 
   filepath = path_to_string(filepath)
+
+  # If the user has not already called fit or built the underlying metrics, we
+  # should do that before saving to ensure the metric names have all
+  # appropriate name transformations applied.
+  saving_utils.try_build_compiled_arguments(model)
 
   if (save_format == 'h5' or
       (h5py is not None and isinstance(filepath, h5py.File)) or

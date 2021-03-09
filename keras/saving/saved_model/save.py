@@ -17,12 +17,11 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import tensorflow as tf
+import tensorflow.compat.v2 as tf
 
 import os
 
 from tensorflow.core.framework import versions_pb2
-from tensorflow.python.distribute import distribution_strategy_context
 from keras import backend as K
 from keras.protobuf import saved_metadata_pb2
 from keras.saving import saving_utils
@@ -32,7 +31,6 @@ from keras.saving.saved_model import utils
 from keras.utils.generic_utils import LazyLoader
 from keras.utils.io_utils import ask_to_proceed_with_overwrite
 from tensorflow.python.saved_model import save as save_lib
-
 
 # To avoid circular dependencies between keras/engine and keras/saving,
 # code in keras/saving must delay imports.
@@ -82,19 +80,18 @@ def save(model, filepath, overwrite, include_optimizer, signatures=None,
   if not include_optimizer:
     orig_optimizer = model.optimizer
     model.optimizer = None
+    # TODO(b/180760306) Change to del model.optimizer if Layer's __delattr__
+    # calls AutoTrackable's __delattr__.
+    model._delete_tracking("optimizer")  # pylint: disable=protected-access
 
   # Trace all functions and signatures with `training=0` instead of using an
   # already-set learning phase placeholder.
   # This is needed for compatibility reasons until learning phase setting
   # is removed from the public apis.
   with K.deprecated_internal_learning_phase_scope(0):
-    # When saving a model involving batch norm layer within a strategy scope,
-    # the replica context is not available when calling `add_update()`, and thus
-    # we use the default replica context here.
-    with distribution_strategy_context._get_default_replica_context():  # pylint: disable=protected-access
-      with utils.keras_option_scope(save_traces):
-        saved_nodes, node_paths = save_lib.save_and_return_nodes(
-            model, filepath, signatures, options)
+    with utils.keras_option_scope(save_traces):
+      saved_nodes, node_paths = save_lib.save_and_return_nodes(
+          model, filepath, signatures, options)
 
     # Save all metadata to a separate file in the SavedModel directory.
     metadata = generate_keras_metadata(saved_nodes, node_paths)

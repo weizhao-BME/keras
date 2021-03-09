@@ -17,7 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import tensorflow as tf
+import tensorflow.compat.v2 as tf
 
 import os
 from keras import backend as K
@@ -109,7 +109,10 @@ class WorkerTrainingState(object):
     successfully finishes.
     """
     if self.write_checkpoint_manager is self.read_checkpoint_manager:
-      tf.io.gfile.rmtree(self.write_checkpoint_manager.directory)
+      try:
+        tf.io.gfile.rmtree(self.write_checkpoint_manager.directory)
+      except tf.errors.NotFoundError:
+        pass
 
   def maybe_load_initial_epoch_from_ckpt(self, initial_epoch, mode):
     """Maybe load initial epoch from ckpt considering possible worker recovery.

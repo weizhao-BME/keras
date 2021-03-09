@@ -19,7 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import tensorflow as tf
+import tensorflow.compat.v2 as tf
 
 import json
 import os
@@ -201,7 +201,7 @@ def load_model_from_hdf5(filepath, custom_objects=None, compile=True):  # pylint
 
       # Compile model.
       model.compile(**saving_utils.compile_args_from_training_config(
-          training_config, custom_objects))
+          training_config, custom_objects), from_serialized=True)
       saving_utils.try_build_compiled_arguments(model)
 
       # Set optimizer weights.

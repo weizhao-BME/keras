@@ -18,7 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import tensorflow as tf
+import tensorflow.compat.v2 as tf
 
 import copy
 import itertools
@@ -282,6 +282,9 @@ class Model(base_layer.Layer, version_utils.ModelVersionSelector):
       self._distribution_strategy = tf.distribute.get_strategy()
     else:
       self._distribution_strategy = None
+
+    self._cluster_coordinator = None
+
     # Defaults to value of `tf.config.experimental_functions_run_eagerly`.
     self._run_eagerly = None
     # Initialize cache attrs.
@@ -542,6 +545,11 @@ class Model(base_layer.Layer, version_utils.ModelVersionSelector):
         if not steps_per_execution:
           steps_per_execution = kwargs.pop('experimental_steps_per_execution')
 
+      # When compiling from an already-serialized model, we do not want to
+      # reapply some processing steps (e.g. metric renaming for multi-output
+      # models, which have prefixes added for each corresponding output name).
+      from_serialized = kwargs.pop('from_serialized', False)
+
       self._validate_compile(optimizer, metrics, **kwargs)
       self._run_eagerly = run_eagerly
 
@@ -549,7 +557,8 @@ class Model(base_layer.Layer, version_utils.ModelVersionSelector):
       self.compiled_loss = compile_utils.LossesContainer(
           loss, loss_weights, output_names=self.output_names)
       self.compiled_metrics = compile_utils.MetricsContainer(
-          metrics, weighted_metrics, output_names=self.output_names)
+          metrics, weighted_metrics, output_names=self.output_names,
+          from_serialized=from_serialized)
 
       self._configure_steps_per_execution(steps_per_execution or 1)
 
@@ -720,6 +729,10 @@ class Model(base_layer.Layer, version_utils.ModelVersionSelector):
                        'constructed with `dynamic=True`). '
                        'You cannot set `run_eagerly=False`.')
 
+    if self._cluster_coordinator and self._run_eagerly:
+      raise ValueError('When using `Model` with `ParameterServerStrategy`, '
+                       '`run_eagerly` is not supported.')
+
     # Run eagerly logic, by priority:
     # (1) Dynamic models must be run eagerly.
     # (2) Explicitly setting run_eagerly causes a Model to be run eagerly.
@@ -828,6 +841,11 @@ class Model(base_layer.Layer, version_utils.ModelVersionSelector):
           train_function, experimental_relax_shapes=True)
 
     self.train_function = train_function
+
+    if self._cluster_coordinator:
+      self.train_function = lambda iterator: self._cluster_coordinator.schedule(  # pylint: disable=g-long-lambda
+          train_function, args=(iterator,))
+
     return self.train_function
 
   def fit(self,
@@ -992,8 +1010,7 @@ class Model(base_layer.Layer, version_utils.ModelVersionSelector):
         workers: Integer. Used for generator or `keras.utils.Sequence` input
             only. Maximum number of processes to spin up
             when using process-based threading. If unspecified, `workers`
-            will default to 1. If 0, will execute the generator on the main
-            thread.
+            will default to 1.
         use_multiprocessing: Boolean. Used for generator or
             `keras.utils.Sequence` input only. If `True`, use process-based
             threading. If unspecified, `use_multiprocessing` will default to
@@ -1056,10 +1073,14 @@ class Model(base_layer.Layer, version_utils.ModelVersionSelector):
       val_x, val_y, val_sample_weight = (
           data_adapter.unpack_x_y_sample_weight(validation_data))
 
+    if self.distribute_strategy._should_use_with_coordinator:  # pylint: disable=protected-access
+      self._cluster_coordinator = tf.distribute.experimental.coordinator.ClusterCoordinator(
+          self.distribute_strategy)
+
     with self.distribute_strategy.scope(), \
          training_utils.RespectCompiledTrainableState(self):
       # Creates a `tf.data.Dataset` and handles batch and epoch iteration.
-      data_handler = data_adapter.DataHandler(
+      data_handler = data_adapter.get_data_handler(
           x=x,
           y=y,
           sample_weight=sample_weight,
@@ -1118,6 +1139,7 @@ class Model(base_layer.Layer, version_utils.ModelVersionSelector):
               if self.stop_training:
                 break
 
+        logs = data_handler.resolve_logs(logs)
         if logs is None:
           raise ValueError('Expect x to be a non-empty array or dataset.')
         epoch_logs = copy.copy(logs)
@@ -1127,7 +1149,7 @@ class Model(base_layer.Layer, version_utils.ModelVersionSelector):
           # Create data_handler for evaluation and cache it.
           if getattr(self, '_eval_data_handler', None) is None:
             self._fit_frame = tf_inspect.currentframe()
-            self._eval_data_handler = data_adapter.DataHandler(
+            self._eval_data_handler = data_adapter.get_data_handler(
                 x=val_x,
                 y=val_y,
                 sample_weight=val_sample_weight,
@@ -1324,8 +1346,7 @@ class Model(base_layer.Layer, version_utils.ModelVersionSelector):
           `max_queue_size` will default to 10.
         workers: Integer. Used for generator or `keras.utils.Sequence` input
           only. Maximum number of processes to spin up when using process-based
-          threading. If unspecified, `workers` will default to 1. If 0, will
-          execute the generator on the main thread.
+          threading. If unspecified, `workers` will default to 1.
         use_multiprocessing: Boolean. Used for generator or
           `keras.utils.Sequence` input only. If `True`, use process-based
           threading. If unspecified, `use_multiprocessing` will default to
@@ -1355,6 +1376,10 @@ class Model(base_layer.Layer, version_utils.ModelVersionSelector):
     self._check_call_args('evaluate')
     _disallow_inside_tf_function('evaluate')
 
+    if self.distribute_strategy._should_use_with_coordinator:  # pylint: disable=protected-access
+      raise NotImplementedError('`model.evaluate` is not yet supported with '
+                                '`ParameterServerStrategy`.')
+
     with self.distribute_strategy.scope():
       # Use cached evaluation data only when it's called in `Model.fit`
       if (getattr(self, '_fit_frame', None) is not None
@@ -1363,7 +1388,7 @@ class Model(base_layer.Layer, version_utils.ModelVersionSelector):
         data_handler = self._eval_data_handler
       else:
         # Creates a `tf.data.Dataset` and handles batch and epoch iteration.
-        data_handler = data_adapter.DataHandler(
+        data_handler = data_adapter.get_data_handler(
             x=x,
             y=y,
             sample_weight=sample_weight,
@@ -1562,7 +1587,7 @@ class Model(base_layer.Layer, version_utils.ModelVersionSelector):
         workers: Integer. Used for generator or `keras.utils.Sequence` input
             only. Maximum number of processes to spin up when using
             process-based threading. If unspecified, `workers` will default
-            to 1. If 0, will execute the generator on the main thread.
+            to 1.
         use_multiprocessing: Boolean. Used for generator or
             `keras.utils.Sequence` input only. If `True`, use process-based
             threading. If unspecified, `use_multiprocessing` will default to
@@ -1590,6 +1615,10 @@ class Model(base_layer.Layer, version_utils.ModelVersionSelector):
     self._check_call_args('predict')
     _disallow_inside_tf_function('predict')
 
+    if self.distribute_strategy._should_use_with_coordinator:  # pylint: disable=protected-access
+      raise NotImplementedError('`model.predict` is not yet supported with '
+                                '`ParameterServerStrategy`.')
+
     outputs = None
     with self.distribute_strategy.scope():
       # Creates a `tf.data.Dataset` and handles batch and epoch iteration.
@@ -1607,7 +1636,7 @@ class Model(base_layer.Layer, version_utils.ModelVersionSelector):
                         'AutoShardPolicy.FILE might lead to out-of-order result'
                         '. Consider setting it to AutoShardPolicy.DATA.')
 
-      data_handler = data_adapter.DataHandler(
+      data_handler = data_adapter.get_data_handler(
           x=x,
           batch_size=batch_size,
           steps_per_epoch=steps,
@@ -2625,6 +2654,10 @@ class Model(base_layer.Layer, version_utils.ModelVersionSelector):
     return functions
 
   def _should_eval(self, epoch, validation_freq):
+    if self._cluster_coordinator:
+      raise NotImplementedError(
+          'Evaluation in `model.fit` with '
+          '`ParameterServerStrategy` is not yet supported.')
     epoch = epoch + 1  # one-index the user-facing epoch.
     if isinstance(validation_freq, int):
       return epoch % validation_freq == 0

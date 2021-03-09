@@ -18,7 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import tensorflow as tf
+import tensorflow.compat.v2 as tf
 from tensorflow.python.distribute import multi_worker_test_base
 from tensorflow.python.distribute.cluster_resolver import SimpleClusterResolver
 from keras.engine import sequential
@@ -48,8 +48,6 @@ class DatasetCreatorTest(tf.test.TestCase):
         next(iter(tf.data.Dataset.from_tensor_slices([1, 1]))))
 
   def test_dataset_creator_usage_in_parameter_server_model_fit(self):
-    self.skipTest("TODO(rchao): Enable this test once training API changes for "
-                  "DatasetFactory is submitted.")
     cluster_def = multi_worker_test_base.create_in_process_cluster(
         num_workers=2, num_ps=1, rpc_layer="grpc")
     cluster_def["chief"] = [

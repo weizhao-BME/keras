@@ -17,7 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import tensorflow as tf
+import tensorflow.compat.v2 as tf
 
 import os
 
@@ -548,7 +548,7 @@ class TestDistributionStrategyWithNumpyArrays(tf.test.TestCase,
         return self.v2 + inp
 
     with self.cached_session(), distribution.scope():
-      layer = MyLayer(dtype=policy.Policy(policy_name))
+      layer = MyLayer(dtype=policy_name)
       def run_fn():
         x = np.array([1.])
         with tf.GradientTape() as tape:

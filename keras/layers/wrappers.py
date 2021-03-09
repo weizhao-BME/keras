@@ -19,7 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import tensorflow as tf
+import tensorflow.compat.v2 as tf
 
 import copy
 from keras import backend as K
@@ -403,7 +403,7 @@ class Bidirectional(Wrapper):
       automatically.
       Note that the provided `backward_layer` layer should have properties
       matching those of the `layer` argument, in particular it should have the
-      same values for `stateful`, `return_states`, `return_sequence`, etc.
+      same values for `stateful`, `return_states`, `return_sequences`, etc.
       In addition, `backward_layer` and `layer` should have different
       `go_backwards` argument values.
       A `ValueError` will be raised if these requirements are not met.

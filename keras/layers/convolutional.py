@@ -19,7 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import tensorflow as tf
+import tensorflow.compat.v2 as tf
 
 import functools
 import six
@@ -530,7 +530,8 @@ class Conv2D(Conv):
   provide the keyword argument `input_shape`
   (tuple of integers or `None`, does not include the sample axis),
   e.g. `input_shape=(128, 128, 3)` for 128x128 RGB pictures
-  in `data_format="channels_last"`.
+  in `data_format="channels_last"`. You can use `None` when
+  a dimension has variable size.
 
   Examples:
 

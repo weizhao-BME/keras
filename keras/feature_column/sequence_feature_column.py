@@ -21,7 +21,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import tensorflow as tf
+import tensorflow.compat.v2 as tf
 
 from tensorflow.python.feature_column import feature_column_v2 as fc
 from keras import backend
@@ -105,7 +105,7 @@ class SequenceFeatures(kfc._BaseFeaturesLayer):
         feature_columns=feature_columns,
         trainable=trainable,
         name=name,
-        expected_column_type=fc.SequenceDenseColumn,
+        expected_column_type=tf.__internal__.feature_column.SequenceDenseColumn,
         **kwargs)
 
   @property
@@ -162,8 +162,8 @@ class SequenceFeatures(kfc._BaseFeaturesLayer):
         sequence_lengths.append(sequence_length)
 
     # Check and process sequence lengths.
-    fc._verify_static_batch_size_equality(sequence_lengths,
-                                          self._feature_columns)
+    kfc._verify_static_batch_size_equality(    # pylint: disable=protected-access
+        sequence_lengths, self._feature_columns)
     sequence_length = _assert_all_equal_and_return(sequence_lengths)
 
     return self._verify_and_concat_tensors(output_tensors), sequence_length

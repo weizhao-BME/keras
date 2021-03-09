@@ -34,6 +34,11 @@ py_library(
         "keras_parameterized.py",
     ],
     srcs_version = "PY3",
+    visibility = [
+        ":__subpackages__",
+        "//third_party/py/tensorflow:__subpackages__",
+        "//third_party/tensorflow_estimator:__subpackages__",
+    ],
     deps = [
         ":backend",
         ":engine",
@@ -484,6 +489,7 @@ tf_py_test(
         "//:expect_absl_installed",
         "//:expect_numpy_installed",
         "//:expect_six_installed",
+        "//:expect_tensorflow_installed",
     ],
 )
 

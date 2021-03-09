@@ -18,7 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import tensorflow as tf
+import tensorflow.compat.v2 as tf
 
 import collections
 import functools
@@ -736,8 +736,6 @@ class Layer(base_layer.Layer):
       if build_graph:
         # Symbolic execution on symbolic tensors. We will attempt to build
         # the corresponding TF subgraph inside `backend.get_graph()`
-        # TODO(reedwm): We should assert input compatibility after the inputs
-        # are casted, not before.
         input_spec.assert_input_compatibility(self.input_spec, inputs,
                                               self.name)
         graph = backend.get_graph()
@@ -1733,6 +1731,11 @@ class Layer(base_layer.Layer):
       self._dtype_policy = dtype
     elif isinstance(dtype, dict):
       self._dtype_policy = policy.deserialize(dtype)
+    elif isinstance(dtype, str) and dtype in ('mixed_float16',
+                                              'mixed_bfloat16'):
+      # The isinstance check is required since np.dtype raises an error if
+      # compared to a non-dtype string.
+      self._dtype_policy = policy.Policy(dtype)
     elif dtype:
       self._dtype_policy = policy.Policy(tf.as_dtype(dtype).name)
     else:
@@ -2131,8 +2134,10 @@ class Layer(base_layer.Layer):
     # For any super.__delattr__() call, we will directly use the implementation
     # in Trackable and skip the behavior in AutoTrackable. The Layer was
     # originally use Trackable as base class, the change of using Module as base
-    # class forced us to have AutoTrackable in the class hierarchy. Skipping
-    # the __delattr__ and __setattr__ in AutoTrackable will keep the status quo.
+    # class forced us to have AutoTrackable in the class hierarchy.
+    #
+    # TODO(b/180760306) Keeping the status quo of skipping _delattr__ and
+    # __setattr__ in AutoTrackable may be unsustainable.
     existing_value = getattr(self, name, None)
 
     # If this value is replacing an existing object assigned to an attribute, we
@@ -2240,8 +2245,8 @@ class Layer(base_layer.Layer):
 
       backend.track_variable(val)
 
-    # Skip the auto trackable from tf.Module to keep status quo. See the comment
-    # at __delattr__.
+    # TODO(b/180760306) Skip the auto trackable from tf.Module to keep status
+    # quo. See the comment at __delattr__.
     super(tf.__internal__.tracking.AutoTrackable, self).__setattr__(name, value)
 
   # This is a hack so that the is_layer (within

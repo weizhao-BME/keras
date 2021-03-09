@@ -18,7 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import tensorflow as tf
+import tensorflow.compat.v2 as tf
 
 import itertools
 import os
@@ -367,15 +367,28 @@ class IntegerLookupOutputTest(keras_parameterized.TestCase,
     output_dataset = model.predict(input_array)
     self.assertAllEqual(expected_output, output_dataset)
 
-  def test_forward_backward_output(self):
+  def test_forward_backward_explicit_vocab(self):
     vocab_data = [42, 1138, 725, 1729]
     input_array = np.array([[42, 1138, 725, 1729], [1729, 725, 42, 203]])
     expected_output = np.array([[42, 1138, 725, 1729], [1729, 725, 42, -1]])
 
     input_data = keras.Input(shape=(None,), dtype=tf.int64)
+    layer = get_layer_class()(vocabulary=vocab_data)
+    inverse_layer = get_layer_class()(vocabulary=vocab_data, invert=True)
+    int_data = layer(input_data)
+    inverse_data = inverse_layer(int_data)
+    model = keras.Model(inputs=input_data, outputs=inverse_data)
+    output_dataset = model.predict(input_array)
+    self.assertAllEqual(expected_output, output_dataset)
+
+  def test_forward_backward_adapted_vocab(self):
+    adapt_data = [42, 1138, 725, 1729]
+    input_array = np.array([[42, 1138, 725, 1729], [1729, 725, 42, 203]])
+    expected_output = np.array([[42, 1138, 725, 1729], [1729, 725, 42, -1]])
+
+    input_data = keras.Input(shape=(None,), dtype=tf.int64)
     layer = get_layer_class()()
-    inverse_layer = get_layer_class()()
-    layer.set_vocabulary(vocab_data)
+    layer.adapt(adapt_data)
     inverse_layer = get_layer_class()(
         vocabulary=layer.get_vocabulary(), invert=True)
     int_data = layer(input_data)
